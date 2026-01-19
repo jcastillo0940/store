@@ -188,10 +188,19 @@ function openAlternatives(sku, itemId, productName) {
     const list = document.getElementById('alternativesList');
     list.innerHTML = `<div class="flex flex-col items-center py-20"><div class="w-16 h-16 border-8 border-[#0f60e3] border-t-transparent rounded-full animate-spin"></div></div>`;
     document.getElementById('modalAlternatives').classList.replace('hidden', 'flex');
-    fetch(`/api/products/alternatives/${sku}`).then(res => res.json()).then(products => {
-        currentAlternatives = products;
-        renderAlternatives(products);
-    });
+    fetch(`/api/products/alternatives/${sku}`)
+        .then(res => {
+            if (!res.ok) throw new Error('Error al cargar alternativas');
+            return res.json();
+        })
+        .then(products => {
+            currentAlternatives = products;
+            renderAlternatives(products);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            list.innerHTML = '<p class="text-center font-bold text-red-500">Error al cargar alternativas. Por favor intenta de nuevo.</p>';
+        });
 }
 
 function renderAlternatives(products) {
@@ -222,7 +231,12 @@ function replaceItem(itemId, newSku, btn) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
         body: JSON.stringify({ order_item_id: itemId, new_sku: newSku })
-    }).then(res => res.json()).then(data => {
+    })
+    .then(res => {
+        if (!res.ok) throw new Error('Error al reemplazar el item');
+        return res.json();
+    })
+    .then(data => {
         if (data.status === 'success') {
             document.getElementById(`name-${itemId}`).innerText = data.new_name;
             document.getElementById(`price-${itemId}`).innerText = data.new_price;
@@ -233,6 +247,12 @@ function replaceItem(itemId, newSku, btn) {
             row.classList.add('ring-4', 'ring-[#ffd100]');
             setTimeout(() => row.classList.remove('ring-4', 'ring-[#ffd100]'), 1000);
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        btn.disabled = false;
+        btn.innerText = "ELEGIR";
+        alert('Error al reemplazar el producto. Por favor intenta de nuevo.');
     });
 }
 

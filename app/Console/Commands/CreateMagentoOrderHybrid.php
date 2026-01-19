@@ -369,7 +369,8 @@ GQL;
 
         $products = [];
         foreach ($skus as $index => $sku) {
-            $qty = $this->option('qty')[$index] ?? 1;
+            $qtyArray = $this->option('qty') ?? [];
+            $qty = $qtyArray[$index] ?? 1;
             $info = $this->magentoService->getProductBySku($sku);
             $products[] = [
                 'sku' => $sku,
