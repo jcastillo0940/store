@@ -69,18 +69,32 @@ class CreateMagentoOrderHybrid extends Command
 
             // 2. Agregar productos (GraphQL)
             $this->line("\n2️⃣  Agregando productos (GraphQL)...");
+            $itemsAddedSuccessfully = 0;
+            $totalItems = count($data['products']);
+
             foreach ($data['products'] as $product) {
                 $sku = $product['sku'];
                 $qty = (float)$product['quantity'];
                 $mutation = "mutation { addProductsToCart(cartId: \"{$cartId}\", cartItems: [{sku: \"{$sku}\", quantity: {$qty}}]) { cart { items { id } } } }";
                 $result = $this->gql($graphqlUrl, $mutation);
-                
+
                 if (isset($result['errors'])) {
                     $this->warn("   ⚠️  {$sku} - " . $result['errors'][0]['message']);
                 } else {
-                    $this->info("   ✅ {$sku}");
+                    $itemsAddedSuccessfully++;
+                    $this->info("   ✅ {$sku} (agregado {$itemsAddedSuccessfully}/{$totalItems})");
                 }
             }
+
+            // Verificar que al menos un producto se haya agregado
+            if ($itemsAddedSuccessfully === 0) {
+                $this->error("\n❌ No se pudo agregar ningún producto al carrito.");
+                $this->error("   Todos los productos tienen problemas de stock o no existen.");
+                $this->error("   Abortando creación de orden.");
+                return null;
+            }
+
+            $this->line("\n   📊 Resumen: {$itemsAddedSuccessfully}/{$totalItems} productos agregados exitosamente");
 
             // 3. Email (GraphQL)
             $this->line("\n3️⃣  Configurando email (GraphQL)...");
@@ -215,6 +229,13 @@ GQL;
 
             if (isset($paymentResult['errors'])) {
                 $this->error("   ❌ " . $paymentResult['errors'][0]['message']);
+                $this->warn("   ℹ️  Nota: Algunos métodos de pago solo funcionan con cuentas registradas.");
+                $this->warn("   ℹ️  Intenta con otro método o verifica la configuración de Magento.");
+
+                // Mostrar debug del carrito
+                if ($this->debug) {
+                    $this->debugMagentoOrder($cartId, $baseUrl, $graphqlUrl, $token, $data);
+                }
                 return null;
             }
 
