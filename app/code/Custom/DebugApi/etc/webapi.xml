@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+    <route url="/V1/debug/logs/exception" method="GET">
+        <service class="Custom\DebugApi\Api\LogReaderInterface" method="getExceptionLog"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+    <route url="/V1/debug/logs/system" method="GET">
+        <service class="Custom\DebugApi\Api\LogReaderInterface" method="getSystemLog"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+    <route url="/V1/debug/logs/debug" method="GET">
+        <service class="Custom\DebugApi\Api\LogReaderInterface" method="getDebugLog"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+</routes>

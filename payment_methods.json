@@ -1,0 +1,34 @@
+🔍 Consultando métodos de pago vía REST API...
+
+✅ Cart ID: XZbKcNguq34e4vom4KVZW2zmgYRVzIDB
+
+[
+    {
+        "code": "cashondelivery",
+        "title": "Efectivo"
+    },
+    {
+        "code": "customer_credit",
+        "title": "Cliente Crédito"
+    },
+    {
+        "code": "yappy",
+        "title": "Yappy"
+    },
+    {
+        "code": "free",
+        "title": "No Payment Information Required"
+    },
+    {
+        "code": "chcybersource",
+        "title": "Tarjeta de Crédito (VISA\/MasterCard)"
+    },
+    {
+        "code": "supercarnes_clave_debit_card",
+        "title": "Tarjeta de Débito CLAVE"
+    },
+    {
+        "code": "supercarnes_digital_grant",
+        "title": "Beca Digital"
+    }
+]
