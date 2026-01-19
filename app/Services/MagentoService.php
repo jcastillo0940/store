@@ -116,6 +116,9 @@ class MagentoService
 
             // 2. Agregar Items
             Log::info("Agregando items al carrito");
+            $itemsAddedSuccessfully = 0;
+            $totalItems = count($order->items);
+
             foreach ($order->items as $item) {
                 $qty = (float)$item->quantity;
                 $cartItem = [
@@ -126,7 +129,7 @@ class MagentoService
                     ]
                 ];
 
-                // NUEVA ESTRUCTURA para Custom Options
+                // Estructura correcta para Custom Options
                 if ($item->custom_option_id) {
                     $product = Product::where('sku', $item->sku)->first();
                     if ($product && $product->custom_options) {
@@ -134,12 +137,14 @@ class MagentoService
                             if (isset($option['values'])) {
                                 foreach ($option['values'] as $value) {
                                     if ($value['option_type_id'] == $item->custom_option_id) {
-                                        // SIN product_option wrapper
-                                        $cartItem['cartItem']['extension_attributes'] = [
-                                            'custom_options' => [
-                                                [
-                                                    'option_id' => (string)$option['option_id'],
-                                                    'option_value' => (string)$value['option_type_id']
+                                        // Estructura correcta según API de Magento 2
+                                        $cartItem['cartItem']['product_option'] = [
+                                            'extension_attributes' => [
+                                                'custom_options' => [
+                                                    [
+                                                        'option_id' => (string)$option['option_id'],
+                                                        'option_value' => (string)$value['option_type_id']
+                                                    ]
                                                 ]
                                             ]
                                         ];
@@ -162,11 +167,20 @@ class MagentoService
                 }
 
                 if ($res->successful()) {
-                    Log::info("Item {$item->sku} agregado exitosamente");
+                    $itemsAddedSuccessfully++;
+                    Log::info("Item {$item->sku} agregado exitosamente ({$itemsAddedSuccessfully}/{$totalItems})");
                 } else {
                     Log::error("Error agregando item {$item->sku}: " . $res->body());
                 }
             }
+
+            // Verificar que al menos un item se haya agregado
+            if ($itemsAddedSuccessfully === 0) {
+                Log::error("No se pudo agregar ningún item al carrito. Abortando creación de orden.");
+                return null;
+            }
+
+            Log::info("Items agregados exitosamente: {$itemsAddedSuccessfully}/{$totalItems}");
 
             // 3. Dirección
             $address = [
