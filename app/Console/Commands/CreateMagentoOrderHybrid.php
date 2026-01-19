@@ -63,9 +63,18 @@ class CreateMagentoOrderHybrid extends Command
             // 1. Crear carrito (GraphQL)
             $this->line("1️⃣  Creando carrito (GraphQL)...");
             $result = $this->gql($graphqlUrl, 'mutation { createEmptyCart }');
+
+            if ($this->debug) {
+                $this->line("   📥 Respuesta completa:");
+                $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            }
+
             $cartId = $result['data']['createEmptyCart'] ?? null;
-            if (!$cartId) return null;
-            $this->info("   ✅ {$cartId}");
+            if (!$cartId) {
+                $this->error("   ❌ No se pudo crear el carrito");
+                return null;
+            }
+            $this->info("   ✅ Cart ID: {$cartId}");
 
             // 2. Agregar productos (GraphQL)
             $this->line("\n2️⃣  Agregando productos (GraphQL)...");
@@ -75,14 +84,33 @@ class CreateMagentoOrderHybrid extends Command
             foreach ($data['products'] as $product) {
                 $sku = $product['sku'];
                 $qty = (float)$product['quantity'];
-                $mutation = "mutation { addProductsToCart(cartId: \"{$cartId}\", cartItems: [{sku: \"{$sku}\", quantity: {$qty}}]) { cart { items { id } } } }";
+                $mutation = "mutation { addProductsToCart(cartId: \"{$cartId}\", cartItems: [{sku: \"{$sku}\", quantity: {$qty}}]) { cart { items { id product { sku name } quantity } } } }";
+
+                if ($this->debug) {
+                    $this->line("   📤 Request para SKU {$sku}:");
+                    $this->line("   Mutation: " . substr($mutation, 0, 150) . "...");
+                }
+
                 $result = $this->gql($graphqlUrl, $mutation);
+
+                if ($this->debug) {
+                    $this->line("   📥 Respuesta:");
+                    $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+                }
 
                 if (isset($result['errors'])) {
                     $this->warn("   ⚠️  {$sku} - " . $result['errors'][0]['message']);
+                    if ($this->debug && isset($result['errors'][0]['debugMessage'])) {
+                        $this->line("   Debug: " . $result['errors'][0]['debugMessage']);
+                    }
                 } else {
                     $itemsAddedSuccessfully++;
                     $this->info("   ✅ {$sku} (agregado {$itemsAddedSuccessfully}/{$totalItems})");
+
+                    if ($this->debug && isset($result['data']['addProductsToCart']['cart']['items'])) {
+                        $items = $result['data']['addProductsToCart']['cart']['items'];
+                        $this->line("   📦 Items en carrito: " . count($items));
+                    }
                 }
             }
 
@@ -98,8 +126,14 @@ class CreateMagentoOrderHybrid extends Command
 
             // 3. Email (GraphQL)
             $this->line("\n3️⃣  Configurando email (GraphQL)...");
-            $this->gql($graphqlUrl, "mutation { setGuestEmailOnCart(input: {cart_id: \"{$cartId}\", email: \"{$data['email']}\"}) { cart { email } } }");
-            $this->info("   ✅ OK");
+            $emailResult = $this->gql($graphqlUrl, "mutation { setGuestEmailOnCart(input: {cart_id: \"{$cartId}\", email: \"{$data['email']}\"}) { cart { email } } }");
+
+            if ($this->debug) {
+                $this->line("   📥 Respuesta:");
+                $this->line(json_encode($emailResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            }
+
+            $this->info("   ✅ Email: {$data['email']}");
 
             // Preparar datos de dirección
             $firstname = addslashes($data['customer_name']);
@@ -133,7 +167,13 @@ mutation {
   }
 }
 GQL;
-            $this->gql($graphqlUrl, $billingMutation);
+            $billingResult = $this->gql($graphqlUrl, $billingMutation);
+
+            if ($this->debug) {
+                $this->line("   📥 Respuesta:");
+                $this->line(json_encode($billingResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            }
+
             $this->info("   ✅ OK");
 
             // 5. Shipping Address (GraphQL)
@@ -158,19 +198,32 @@ mutation {
       }]
     }
   ) {
-    cart { shipping_addresses { available_shipping_methods { carrier_code } } }
+    cart { shipping_addresses { available_shipping_methods { carrier_code method_code } } }
   }
 }
 GQL;
-            $this->gql($graphqlUrl, $shippingMutation);
+            $shippingResult = $this->gql($graphqlUrl, $shippingMutation);
+
+            if ($this->debug) {
+                $this->line("   📥 Respuesta:");
+                $this->line(json_encode($shippingResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            }
+
             $this->info("   ✅ OK");
 
             // 6. Shipping Method (GraphQL)
             $this->line("\n6️⃣  Método de envío (GraphQL)...");
             $carrier = $data['delivery_method'] === 'pickup' ? 'instore' : 'tablerate';
             $method = $data['delivery_method'] === 'pickup' ? 'pickup' : 'bestway';
-            $this->gql($graphqlUrl, "mutation { setShippingMethodsOnCart(input: {cart_id: \"{$cartId}\", shipping_methods: [{carrier_code: \"{$carrier}\", method_code: \"{$method}\"}]}) { cart { id } } }");
-            $this->info("   ✅ OK");
+
+            $shippingMethodResult = $this->gql($graphqlUrl, "mutation { setShippingMethodsOnCart(input: {cart_id: \"{$cartId}\", shipping_methods: [{carrier_code: \"{$carrier}\", method_code: \"{$method}\"}]}) { cart { id } } }");
+
+            if ($this->debug) {
+                $this->line("   📥 Respuesta:");
+                $this->line(json_encode($shippingMethodResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            }
+
+            $this->info("   ✅ Método: {$carrier}/{$method}");
 
             // 7. Obtener métodos de pago disponibles (REST)
             $this->line("\n7️⃣  Obteniendo métodos de pago disponibles (REST)...");
@@ -231,20 +284,31 @@ GQL;
                 ]
             ];
 
-            if ($this->debug) {
-                $this->line("   Payload:");
-                $this->line(json_encode($paymentInfo, JSON_PRETTY_PRINT));
-            }
+            $this->line("\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            $this->line("   📤 REQUEST:");
+            $this->line("   POST {$baseUrl}/rest/V1/guest-carts/{$cartId}/payment-information");
+            $this->line("   Headers: Authorization: Bearer {$token}");
+            $this->line("   Body:");
+            $this->line(json_encode($paymentInfo, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $this->line("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
             $orderResponse = Http::withToken($token)
                 ->timeout(60)
                 ->post("{$baseUrl}/rest/V1/guest-carts/{$cartId}/payment-information", $paymentInfo);
+
+            $this->line("\n   📥 RESPONSE:");
+            $this->line("   HTTP Status: {$orderResponse->status()}");
+            $this->line("   Headers: " . json_encode($orderResponse->headers()));
+            $this->line("   Body:");
+            $this->line($orderResponse->body());
+            $this->line("   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
             if ($orderResponse->successful()) {
                 $magentoOrderId = $orderResponse->json();
 
                 if (is_numeric($magentoOrderId) && $magentoOrderId > 0) {
                     $this->info("   ✅ Orden creada exitosamente");
+                    $this->info("   📦 Order ID: {$magentoOrderId}");
                     return (string)$magentoOrderId;
                 }
 
@@ -257,12 +321,19 @@ GQL;
             $errorBody = $orderResponse->json();
 
             if (isset($errorBody['message'])) {
-                $this->error("   Mensaje: {$errorBody['message']}");
+                $this->error("   💬 Mensaje: {$errorBody['message']}");
+            }
+
+            if (isset($errorBody['parameters'])) {
+                $this->error("   📋 Parámetros: " . json_encode($errorBody['parameters']));
+            }
+
+            if (isset($errorBody['trace'])) {
+                $this->warn("   🔍 Trace disponible (usa --debug para ver completo)");
             }
 
             if ($this->debug) {
-                $this->line("\n   Respuesta completa:");
-                $this->line($orderResponse->body());
+                $this->line("\n   ━━━ DIAGNÓSTICO DEL CARRITO ━━━");
                 $this->debugMagentoOrder($cartId, $baseUrl, $graphqlUrl, $token, $data);
             }
 
