@@ -207,59 +207,62 @@ GQL;
             // Verificar si el método solicitado está disponible
             if (!in_array($data['payment_method'], $methodCodes)) {
                 $this->warn("   ⚠️  Método solicitado '{$data['payment_method']}' NO disponible");
-                
+
                 // Preguntar al usuario qué método usar
                 $selectedMethod = $this->choice(
                     '¿Qué método de pago deseas usar?',
                     $methodCodes,
                     0
                 );
-                
+
                 $data['payment_method'] = $selectedMethod;
                 $this->info("   ✅ Usando: {$selectedMethod}");
             } else {
                 $this->info("   ✅ Método válido: {$data['payment_method']}");
             }
 
-            // 8. Configurar método de pago con GraphQL
-            $this->line("\n8️⃣  Configurando pago (GraphQL)...");
+            // 8. Crear orden con REST (payment-information configura pago y crea orden en un solo paso)
+            $this->line("\n8️⃣  Creando orden con REST (configurando pago y finalizando)...");
 
-            $paymentMutation = "mutation { setPaymentMethodOnCart(input: {cart_id: \"{$cartId}\", payment_method: {code: \"{$data['payment_method']}\"}}) { cart { selected_payment_method { code } } } }";
-            $paymentResult = $this->gql($graphqlUrl, $paymentMutation);
+            $paymentInfo = [
+                'email' => $data['email'],
+                'paymentMethod' => [
+                    'method' => $data['payment_method']
+                ]
+            ];
 
-            if (isset($paymentResult['errors'])) {
-                $this->error("   ❌ " . $paymentResult['errors'][0]['message']);
-                $this->warn("   ℹ️  Nota: Algunos métodos de pago solo funcionan con cuentas registradas.");
-                $this->warn("   ℹ️  Intenta con otro método o verifica la configuración de Magento.");
+            if ($this->debug) {
+                $this->line("   Payload:");
+                $this->line(json_encode($paymentInfo, JSON_PRETTY_PRINT));
+            }
 
-                // Mostrar debug del carrito
-                if ($this->debug) {
-                    $this->debugMagentoOrder($cartId, $baseUrl, $graphqlUrl, $token, $data);
+            $orderResponse = Http::withToken($token)
+                ->timeout(60)
+                ->post("{$baseUrl}/rest/V1/guest-carts/{$cartId}/payment-information", $paymentInfo);
+
+            if ($orderResponse->successful()) {
+                $magentoOrderId = $orderResponse->json();
+
+                if (is_numeric($magentoOrderId) && $magentoOrderId > 0) {
+                    $this->info("   ✅ Orden creada exitosamente");
+                    return (string)$magentoOrderId;
                 }
+
+                $this->error("   ❌ Respuesta inesperada: " . $orderResponse->body());
                 return null;
             }
 
-            if (empty($paymentResult['data']['setPaymentMethodOnCart']['cart']['selected_payment_method']['code'])) {
-                $this->error("   ❌ No se pudo configurar el método de pago");
-                return null;
+            // Si falla, mostrar error detallado
+            $this->error("   ❌ Error al crear orden (HTTP {$orderResponse->status()})");
+            $errorBody = $orderResponse->json();
+
+            if (isset($errorBody['message'])) {
+                $this->error("   Mensaje: {$errorBody['message']}");
             }
 
-            $this->info("   ✅ OK - " . $paymentResult['data']['setPaymentMethodOnCart']['cart']['selected_payment_method']['code']);
-
-            // 9. Place Order con GraphQL
-            $this->line("\n9️⃣  Creando orden (GraphQL)...");
-
-            $placeOrderMutation = "mutation { placeOrder(input: {cart_id: \"{$cartId}\"}) { order { order_number } } }";
-            $result = $this->gql($graphqlUrl, $placeOrderMutation);
-
-            if (isset($result['data']['placeOrder']['order']['order_number'])) {
-                return $result['data']['placeOrder']['order']['order_number'];
-            }
-
-            if (isset($result['errors'])) {
-                $this->error("   ❌ GraphQL placeOrder falló: " . $result['errors'][0]['message']);
-                
-                // Diagnóstico del carrito
+            if ($this->debug) {
+                $this->line("\n   Respuesta completa:");
+                $this->line($orderResponse->body());
                 $this->debugMagentoOrder($cartId, $baseUrl, $graphqlUrl, $token, $data);
             }
 
