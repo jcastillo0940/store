@@ -219,7 +219,12 @@ class OrderController extends Controller
         $product = Product::where('sku', $sku)->first();
         if (!$product) return response()->json([]);
 
-        $firstWord = explode(' ', trim($product->name))[0];
+        $words = explode(' ', trim($product->name));
+        if (empty($words) || empty($words[0])) {
+            return response()->json([]);
+        }
+
+        $firstWord = $words[0];
         $alternatives = Product::where('name', 'LIKE', "{$firstWord}%")
             ->where('sku', '!=', $sku)
             ->limit(8)

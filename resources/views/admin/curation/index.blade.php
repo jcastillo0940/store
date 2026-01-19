@@ -88,11 +88,14 @@ function searchForCuration() {
     list.style.opacity = '0.5';
 
     fetch(`/admin/search-products?term=${term}`)
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) throw new Error('Error al buscar productos');
+            return res.json();
+        })
         .then(data => {
             list.style.opacity = '1';
             list.innerHTML = '';
-            
+
             // Cargar datos existentes si los hay
             if(data.curation) {
                 synonymsInput.value = data.curation.synonyms || '';
@@ -129,13 +132,18 @@ function searchForCuration() {
             });
 
             document.getElementById('footerActions').classList.remove('hidden');
-            
+
             if(sortableInstance) sortableInstance.destroy();
-            sortableInstance = new Sortable(list, { 
+            sortableInstance = new Sortable(list, {
                 animation: 250,
                 ghostClass: 'bg-green-100',
                 onEnd: () => refreshUI()
             });
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            list.style.opacity = '1';
+            list.innerHTML = '<li class="text-center text-red-500 font-bold py-8">Error al cargar productos. Por favor intenta de nuevo.</li>';
         });
 }
 
@@ -174,13 +182,22 @@ function saveOrder() {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
         body: JSON.stringify({ search_term: term, skus: skus, synonyms: synonyms })
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error('Error al guardar');
+        return res.json();
+    })
     .then(data => {
         btn.innerText = "Configuración Sincronizada ✅";
         setTimeout(() => {
             btn.innerText = "Guardar Entrenamiento";
             btn.disabled = false;
         }, 2000);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        btn.innerText = "Error al Guardar";
+        btn.disabled = false;
+        alert('Error al guardar la configuración. Por favor intenta de nuevo.');
     });
 }
 </script>

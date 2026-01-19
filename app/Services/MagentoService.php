@@ -115,55 +115,58 @@ class MagentoService
             Log::info("Quote creado en Magento: {$quoteId}");
 
             // 2. Agregar Items
-$this->comment("\n2. Agregando Items...");
-foreach ($order->items as $item) {
-    $qty = (float)$item->quantity;
-    $cartItem = [
-        'cartItem' => [
-            'quote_id' => $quoteId,
-            'sku' => $item->sku,
-            'qty' => $qty < 0.1 ? 1 : $qty
-        ]
-    ];
+            Log::info("Agregando items al carrito");
+            foreach ($order->items as $item) {
+                $qty = (float)$item->quantity;
+                $cartItem = [
+                    'cartItem' => [
+                        'quote_id' => $quoteId,
+                        'sku' => $item->sku,
+                        'qty' => $qty < 0.1 ? 1 : $qty
+                    ]
+                ];
 
-    // NUEVA ESTRUCTURA para Custom Options
-    if ($item->custom_option_id) {
-        $product = Product::where('sku', $item->sku)->first();
-        if ($product && $product->custom_options) {
-            foreach ($product->custom_options as $option) {
-                if (isset($option['values'])) {
-                    foreach ($option['values'] as $value) {
-                        if ($value['option_type_id'] == $item->custom_option_id) {
-                            // SIN product_option wrapper
-                            $cartItem['cartItem']['extension_attributes'] = [
-                                'custom_options' => [
-                                    [
-                                        'option_id' => (string)$option['option_id'],
-                                        'option_value' => (string)$value['option_type_id']
-                                    ]
-                                ]
-                            ];
-                            break 2;
+                // NUEVA ESTRUCTURA para Custom Options
+                if ($item->custom_option_id) {
+                    $product = Product::where('sku', $item->sku)->first();
+                    if ($product && $product->custom_options) {
+                        foreach ($product->custom_options as $option) {
+                            if (isset($option['values'])) {
+                                foreach ($option['values'] as $value) {
+                                    if ($value['option_type_id'] == $item->custom_option_id) {
+                                        // SIN product_option wrapper
+                                        $cartItem['cartItem']['extension_attributes'] = [
+                                            'custom_options' => [
+                                                [
+                                                    'option_id' => (string)$option['option_id'],
+                                                    'option_value' => (string)$value['option_type_id']
+                                                ]
+                                            ]
+                                        ];
+                                        break 2;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+
+                Log::info("Enviando item SKU {$item->sku}", ['cartItem' => $cartItem]);
+
+                $res = Http::withToken($this->token)->post("{$this->baseUrl}/rest/V1/guest-carts/{$quoteId}/items", $cartItem);
+
+                if (!$res->successful() && str_contains($res->body(), 'fewest you may purchase is 1')) {
+                    Log::warning("Reintentando con cantidad 1 para SKU {$item->sku}");
+                    $cartItem['cartItem']['qty'] = 1;
+                    $res = Http::withToken($this->token)->post("{$this->baseUrl}/rest/V1/guest-carts/{$quoteId}/items", $cartItem);
+                }
+
+                if ($res->successful()) {
+                    Log::info("Item {$item->sku} agregado exitosamente");
+                } else {
+                    Log::error("Error agregando item {$item->sku}: " . $res->body());
+                }
             }
-        }
-    }
-
-    $this->line("📡 Enviando Item SKU {$item->sku}:");
-    $this->info(json_encode($cartItem, JSON_PRETTY_PRINT));
-    
-    $res = Http::withToken($token)->post("{$baseUrl}/rest/V1/guest-carts/{$quoteId}/items", $cartItem);
-    
-    if (!$res->successful() && str_contains($res->body(), 'fewest you may purchase is 1')) {
-        $this->warn("   ⚠️ Reintentando con cantidad 1...");
-        $cartItem['cartItem']['qty'] = 1;
-        $res = Http::withToken($token)->post("{$baseUrl}/rest/V1/guest-carts/{$quoteId}/items", $cartItem);
-    }
-
-    $this->line($res->successful() ? "   ✅ OK" : "   ❌ FALLÓ: " . $res->body());
-}
 
             // 3. Dirección
             $address = [
