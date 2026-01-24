@@ -40,7 +40,13 @@ return [
         'base_url' => env('MAGENTO_BASE_URL'),
         'token' => env('MAGENTO_TOKEN'),
     ],
-    
+
+    'hub' => [
+        'base_url' => env('HUB_BASE_URL'),
+        'api_key' => env('HUB_API_KEY'),
+        'timeout' => env('HUB_TIMEOUT', 30),
+    ],
+
     'gemini' => [
     'key' => env('GEMINI_API_KEY'),
 ],
