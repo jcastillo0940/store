@@ -7,8 +7,10 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\SearchCuration;
 use App\Models\CustomerPreference;
+use App\Models\PickingOrder;
 use App\Services\MagentoService;
 use App\Services\GeminiService;
+use App\Services\HubService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -17,11 +19,13 @@ class OrderController extends Controller
 {
     protected $magentoService;
     protected $geminiService;
+    protected $hubService;
 
-    public function __construct(MagentoService $magentoService, GeminiService $geminiService)
+    public function __construct(MagentoService $magentoService, GeminiService $geminiService, HubService $hubService)
     {
         $this->magentoService = $magentoService;
         $this->geminiService = $geminiService;
+        $this->hubService = $hubService;
     }
 
     private function parseLineIntelligence($line)
@@ -192,26 +196,95 @@ class OrderController extends Controller
         $itemsData = $request->input('items', []);
 
         return DB::transaction(function () use ($order, $itemsData) {
+            // Procesar items confirmados y eliminados
+            $confirmedItems = [];
             $finalTotal = 0;
+
             foreach ($itemsData as $itemId => $data) {
                 $item = OrderItem::find($itemId);
                 if ($item && isset($data['confirmed'])) {
                     $item->update(['quantity' => $data['qty'], 'is_confirmed' => true]);
                     $finalTotal += ($item->price * $item->quantity);
+                    $confirmedItems[] = $item;
                 } elseif ($item) {
                     $item->delete();
                 }
             }
 
             $order->update(['total_amount' => $finalTotal, 'status' => 'processing']);
-            $magentoOrderId = $this->magentoService->createOrder($order);
 
-            if ($magentoOrderId) {
-                $order->update(['magento_order_id' => $magentoOrderId, 'status' => 'completed']);
-                return redirect('/')->with('success', "Pedido #{$magentoOrderId} procesado.");
+            // Convertir a PickingOrder para enviar al Hub
+            $pickingOrder = $this->convertToPickingOrder($order, $confirmedItems);
+
+            // Despachar al Hub
+            $pickingOrder->markDispatching();
+            $result = $this->hubService->dispatchPickingOrder($pickingOrder);
+
+            if ($result['success']) {
+                $pickingOrder->markSentToHub(
+                    $result['hub_order_id'],
+                    $result['data']
+                );
+
+                // Marcar la orden original como enviada al hub
+                $order->update([
+                    'status' => 'sent_to_hub',
+                    'notes' => "Enviada al Hub. Picking Order ID: {$pickingOrder->id}"
+                ]);
+
+                return redirect()
+                    ->route('picking-orders.show', $pickingOrder->id)
+                    ->with('success', 'Orden enviada al sistema de picking exitosamente');
             }
-            return back()->with('error', 'Error con Magento.');
+
+            // Si falla el dispatch
+            $pickingOrder->markDispatchFailed($result['error']);
+
+            return redirect()
+                ->route('picking-orders.show', $pickingOrder->id)
+                ->with('warning', 'Orden creada pero no se pudo enviar al Hub. Se reintentará automáticamente.');
         });
+    }
+
+    /**
+     * Convierte una Order existente a PickingOrder
+     */
+    private function convertToPickingOrder(Order $order, array $confirmedItems): PickingOrder
+    {
+        // Construir la lista de items como texto
+        $itemsAsText = [];
+        foreach ($confirmedItems as $item) {
+            $text = '';
+
+            // Agregar cantidad si es mayor a 1
+            if ($item->quantity > 1) {
+                $text .= $item->quantity . ' ';
+            }
+
+            // Agregar nombre del producto
+            $text .= $item->name;
+
+            // Si es por peso, agregar unidad
+            if ($item->is_by_weight) {
+                $text .= ' (' . $item->quantity . ' kg)';
+            }
+
+            $itemsAsText[] = $text;
+        }
+
+        // Crear el PickingOrder
+        return PickingOrder::create([
+            'customer_name' => $order->customer_name,
+            'whatsapp' => $order->whatsapp,
+            'email' => $order->email,
+            'branch' => $order->branch ?? 'Aguadulce',
+            'delivery_method' => $order->delivery_method ?? 'pickup',
+            'payment_method' => $order->payment_method ?? 'efectivo',
+            'delivery_address' => $order->delivery_address,
+            'raw_text_input' => $order->raw_text_input,
+            'items_as_text' => $itemsAsText,
+            'status' => 'pending_dispatch',
+        ]);
     }
 
     public function getAlternatives($sku)

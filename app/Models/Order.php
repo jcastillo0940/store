@@ -25,6 +25,7 @@ class Order extends Model
         'delivery_address',
         'raw_text_input',
         'status',
+        'notes',
         'magento_cart_id',
         'magento_order_id',
         'total_amount',
